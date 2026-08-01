@@ -1,0 +1,8 @@
+services:
+  house-status:
+    build: .
+    image: house-status:latest
+    container_name: house-status
+    ports:
+      - "8088:80"
+    restart: unless-stopped
