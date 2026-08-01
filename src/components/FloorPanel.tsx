@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import type { Floor, ID, Marker, Point, Room, Scale, Selection, Tool } from '../types'
-import { GRID, WORLD, centroid, pointsToPath, rectPoints, snap } from '../geometry'
+import { GRID, WORLD, bounds, centroid, pointsToPath, rectPoints, snap } from '../geometry'
 import { contrastText, findLevel } from '../scales'
 import { dueState } from '../state'
 
@@ -34,7 +34,7 @@ interface Props {
 type Drag =
   | { kind: 'pan'; lastClient: Point }
   | { kind: 'rect'; start: Point; end: Point }
-  | { kind: 'moveRoom'; id: ID; last: Point; moved: boolean }
+  | { kind: 'moveRoom'; id: ID; start: Point; anchor: Point; applied: Point }
   | { kind: 'moveMarker'; id: ID }
   | { kind: 'vertex'; id: ID; index: number }
   | null
@@ -172,7 +172,17 @@ export function FloorPanel(props: Props) {
 
     if (roomId) {
       onSelect({ kind: 'room', id: roomId })
-      if (editing) dragRef.current = { kind: 'moveRoom', id: roomId, last: world, moved: false }
+      const room = rooms.find((r) => r.id === roomId)
+      if (editing && room) {
+        const box = bounds(room.points)
+        dragRef.current = {
+          kind: 'moveRoom',
+          id: roomId,
+          start: world,
+          anchor: [box.minX, box.minY],
+          applied: [0, 0],
+        }
+      }
       return
     }
 
@@ -182,6 +192,12 @@ export function FloorPanel(props: Props) {
 
   function onPointerMove(e: ReactPointerEvent) {
     const drag = dragRef.current
+    // A pointerup released outside the window never reaches us, which would
+    // otherwise leave the drag live and let plain mouse movement keep dragging.
+    if (drag && e.pointerType === 'mouse' && e.buttons === 0) {
+      finishDrag()
+      return
+    }
     const world = toWorld(e.clientX, e.clientY)
     if (!drag) {
       if (editing && (tool === 'polygon' || tool === 'rect')) setHoverPoint(snapped(world))
@@ -201,11 +217,14 @@ export function FloorPanel(props: Props) {
         break
       }
       case 'moveRoom': {
-        const dx = world[0] - drag.last[0]
-        const dy = world[1] - drag.last[1]
-        if (!drag.moved && Math.hypot(dx, dy) < 2 * worldPerPixel) break
-        drag.moved = true
-        drag.last = world
+        // Snap the room's top-left corner rather than the pointer delta, so a
+        // room that starts on the grid stays on it however far you drag.
+        const wantX = snap(drag.anchor[0] + world[0] - drag.start[0], snapToGrid)
+        const wantY = snap(drag.anchor[1] + world[1] - drag.start[1], snapToGrid)
+        const dx = wantX - drag.anchor[0] - drag.applied[0]
+        const dy = wantY - drag.anchor[1] - drag.applied[1]
+        if (dx === 0 && dy === 0) break
+        drag.applied = [drag.applied[0] + dx, drag.applied[1] + dy]
         onMoveRoom(drag.id, dx, dy)
         break
       }
@@ -222,9 +241,13 @@ export function FloorPanel(props: Props) {
   }
 
   function onPointerUp(e: ReactPointerEvent) {
+    ;(e.currentTarget as Element).releasePointerCapture?.(e.pointerId)
+    finishDrag()
+  }
+
+  function finishDrag() {
     const drag = dragRef.current
     dragRef.current = null
-    ;(e.currentTarget as Element).releasePointerCapture?.(e.pointerId)
     if (drag?.kind === 'rect') {
       // Read the extent from the drag ref, not from React state: the pointerup
       // can land before the last pointermove has re-rendered.
