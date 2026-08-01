@@ -1,0 +1,52 @@
+# Caddy serves the built files and gets an HTTPS certificate on its own.
+# Install to /etc/caddy/Caddyfile, then: systemctl reload caddy
+#
+# Replace the site address below with the name you will actually type into a
+# browser. The certificate is issued for that exact name, so it has to match.
+#
+# Pick ONE of the three tls setups further down.
+
+house.example.com {
+	root * /var/www/house-status
+	encode gzip
+
+	# Hashed build assets never change under the same name.
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+
+	# Everything else — the shell, the service worker, the manifest, the
+	# icons — keeps its name across builds, so it must be revalidated or an
+	# installed PWA runs the old version forever.
+	@rest not path /assets/*
+	header @rest Cache-Control "no-cache"
+
+	# Single-page app: unknown paths fall back to the shell.
+	try_files {path} /index.html
+	file_server
+
+	# --- 1. Public domain, certificate issued over DNS (recommended) ------
+	# Works for a name that is only reachable on your LAN, and needs no
+	# ports open to the internet. Cloudflare shown; other providers at
+	# https://github.com/caddy-dns. The stock Caddy binary has no DNS
+	# modules, so add the one you need first:
+	#
+	#   caddy add-package github.com/caddy-dns/cloudflare
+	#   systemctl edit caddy      # add: [Service] then Environment=CF_API_TOKEN=...
+	#   systemctl restart caddy
+	#
+	# tls {
+	# 	dns cloudflare {env.CF_API_TOKEN}
+	# }
+
+	# --- 2. No domain: Caddy's own local CA -------------------------------
+	# Issues a certificate immediately for any name, including a bare IP or
+	# a .local name. Every device must trust Caddy's root once, exported
+	# from /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
+	#
+	# tls internal
+
+	# --- 3. Public domain, certificate issued over HTTP --------------------
+	# Nothing to configure — it is Caddy's default — but it requires port 80
+	# reachable from the internet, which is a poor trade for a household
+	# dashboard. Prefer 1 or 2.
+}

@@ -61,17 +61,195 @@ STORAGE=local-zfs BRIDGE=vmbr1 IPCONFIG=192.168.1.50/24 GATEWAY=192.168.1.1 \
 To ship a new build later, repeat the same two commands — the script detects
 the existing container and just replaces the files.
 
-Prefer to click through the Proxmox UI instead? Create a Debian 12 LXC
-(1 core, 512 MB, 2 GB disk, unprivileged, start on boot), then inside it:
+### Proxmox VE — creating the LXC through the web UI
+
+The same thing, clicked rather than scripted. Nothing here assumes you have
+used LXC before. Field names are from Proxmox VE 8/9; older releases differ
+only slightly.
+
+#### 1. Download a container template
+
+1. In the left tree, expand your node and click the **local** storage (or
+   whichever storage has *Container templates* in its content types).
+2. Open **CT Templates**, click **Templates**.
+3. Search for `debian`, pick the newest **debian-13-standard** (or
+   **debian-12-standard**), click **Download**. Wait for the task to finish.
+
+#### 2. Create the container
+
+Click **Create CT**, top right. The wizard has one tab per step:
+
+| Tab | Field | Value |
+| --- | --- | --- |
+| **General** | Node | your node |
+| | CT ID | `120` (any free number) |
+| | Hostname | `house-status` — see [naming](#3-give-it-a-name-you-can-type) below |
+| | Unprivileged container | ✅ leave ticked |
+| | Nested | leave unticked (only Docker needs it) |
+| | Password | set one; this is the container's `root` password |
+| | SSH public key | optional, but paste yours if you want `ssh root@…` |
+| **Template** | Storage | `local` |
+| | Template | the Debian template you just downloaded |
+| **Disks** | Disk size (GiB) | `2` — the app is under a megabyte |
+| **CPU** | Cores | `1` |
+| **Memory** | Memory (MiB) | `512` |
+| | Swap (MiB) | `256` |
+| **Network** | Name | `eth0` |
+| | Bridge | `vmbr0` (whatever your LAN bridge is) |
+| | IPv4 | **Static**, e.g. `192.168.1.50/24`, Gateway `192.168.1.1` |
+| **DNS** | everything | leave blank to inherit the host's settings |
+| **Confirm** | Start after created | ✅ tick it |
+
+A static IP is worth the extra thirty seconds: it is what you will point a DNS
+record or a bookmark at, and it survives DHCP lease churn. If you'd rather use
+DHCP, reserve the address in your router instead.
+
+After it boots, select the container → **Options** → **Start at boot** →
+**Edit** → ✅. The wizard has no field for this, and without it the dashboard
+disappears after a host reboot.
+
+#### 3. Give it a name you can type
+
+The **Hostname** field names the container internally — it does *not* make
+`house-status` resolve anywhere on your network, and HTTPS needs a name that
+resolves. Pick one:
+
+- **Your router or local DNS** (Pi-hole, AdGuard Home, Unbound, OPNsense):
+  add an A record for `house.yourdomain.com` → the container's static IP. Best
+  option, and the only one that works with a real certificate.
+- **mDNS**, no DNS server needed — inside the container:
+  `apt-get install -y avahi-daemon`, and it answers to `house-status.local`
+  from Apple devices, most Linux, and Windows 10+.
+- **Nothing at all** — use the IP. Fine over HTTP; for HTTPS you'll need
+  Caddy's local CA (option 2 below), which will happily certify a bare IP.
+
+#### 4. Install a web server and publish the build
+
+Open the container's **Console** in the Proxmox UI and log in as `root`.
+
+For plain HTTP with nginx:
 
 ```bash
 apt-get update && apt-get install -y nginx
 mkdir -p /var/www/house-status
-# copy dist/ into /var/www/house-status, e.g. with scp from your workstation
-cp nginx-site.conf /etc/nginx/sites-available/house-status
-ln -sf /etc/nginx/sites-available/house-status /etc/nginx/sites-enabled/
-rm -f /etc/nginx/sites-enabled/default && nginx -t && systemctl reload nginx
 ```
+
+For automatic HTTPS with Caddy — it serves the files *and* manages
+certificates, so you do not need nginx at all:
+
+```bash
+apt-get update && apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key \
+  | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt \
+  | tee /etc/apt/sources.list.d/caddy-stable.list
+apt-get update && apt-get install -y caddy
+mkdir -p /var/www/house-status
+```
+
+Then, from your workstation, build and push the files. `pct push` copies into
+the container from the host, so the container needs no SSH server of its own:
+
+```bash
+npm run build
+tar -czf house-status.tgz -C dist .
+scp house-status.tgz deploy/nginx-site.conf deploy/Caddyfile root@pve:/tmp/
+ssh root@pve 'pct push 120 /tmp/house-status.tgz /tmp/house-status.tgz'
+```
+
+Back in the container console, unpack and wire up the server:
+
+```bash
+tar -xzf /tmp/house-status.tgz -C /var/www/house-status
+chown -R www-data:www-data /var/www/house-status   # or caddy:caddy for Caddy
+```
+
+**nginx:**
+
+```bash
+# push the config in too: ssh root@pve 'pct push 120 /tmp/nginx-site.conf /etc/nginx/sites-available/house-status'
+ln -sf /etc/nginx/sites-available/house-status /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl reload nginx
+```
+
+**Caddy:** edit `/etc/caddy/Caddyfile` — start from `deploy/Caddyfile`, put your
+own hostname on the first line, and uncomment one of the three `tls` blocks it
+documents. Then:
+
+```bash
+caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
+```
+
+Visit the address and you should get the sample house.
+
+#### 5. Automatic HTTPS, in one of three ways
+
+Certificates matter here: without one, the browser will not register the
+service worker or offer to install the app (see
+[Serving over HTTPS](#serving-over-https)). Caddy handles all three of these on
+its own, renewals included — there is no cron job to set up.
+
+**A real certificate for a name that never leaves your LAN.** You own a domain,
+you point `house.yourdomain.com` at the container's private IP in your local
+DNS, and Caddy proves ownership through your DNS provider's API rather than
+over the internet. Nothing is exposed publicly. The stock Caddy binary ships
+no DNS modules, so add yours first:
+
+```bash
+caddy add-package github.com/caddy-dns/cloudflare
+systemctl edit caddy     # [Service] / Environment=CF_API_TOKEN=your-token
+systemctl restart caddy
+```
+
+with this in the Caddyfile:
+
+```caddyfile
+tls {
+	dns cloudflare {env.CF_API_TOKEN}
+}
+```
+
+Providers other than Cloudflare are at <https://github.com/caddy-dns>. The API
+token needs only DNS-edit rights on that one zone.
+
+**No domain? Caddy's own certificate authority.** One line:
+
+```caddyfile
+tls internal
+```
+
+Caddy issues itself a certificate for whatever name — or bare IP — you used,
+immediately and offline. The catch is that each phone and laptop has to trust
+Caddy's root once. Copy it out of the container and install it on each device:
+
+```bash
+pct pull 120 /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt /tmp/caddy-root.crt
+```
+
+**Tailscale, if the family is ever away from home.** `tailscale serve --bg 80`
+puts the app on your tailnet under a `*.ts.net` name with a real, auto-renewed
+certificate, reachable from anywhere without opening a single port. In an
+**unprivileged LXC** Tailscale needs the TUN device, which means adding two
+lines to `/etc/pve/lxc/120.conf` on the Proxmox host (container stopped):
+
+```
+lxc.cgroup2.devices.allow: c 10:200 rwm
+lxc.mount.entry: /dev/net dev/net none bind,create=dir
+```
+
+#### 6. Later, to ship a new build
+
+```bash
+npm run build
+tar -czf house-status.tgz -C dist .
+scp house-status.tgz root@pve:/tmp/
+ssh root@pve 'pct push 120 /tmp/house-status.tgz /tmp/house-status.tgz \
+  && pct exec 120 -- tar -xzf /tmp/house-status.tgz -C /var/www/house-status'
+```
+
+No restart needed — they're static files, and the cache headers make sure
+browsers pick them up.
 
 ### Proxmox VE — Docker in an LXC or VM
 
