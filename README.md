@@ -103,10 +103,10 @@ docker run -d --name house-status --restart unless-stopped -p 8088:80 house-stat
 ```
 
 The image is a multi-stage build: Node compiles the bundle, and the shipped
-image is just `nginx:alpine` plus the ~190 kB of static files — the toolchain
-stays in the build stage. It holds no state, so it can be killed,
-rebuilt, and replaced freely — the data lives in each browser. Update with
-`docker compose up -d --build` again.
+image is `nginx:alpine` plus the ~190 kB of static files — about 92 MB total,
+with the toolchain left behind in the build stage. It holds no state, so it can
+be killed, rebuilt, and replaced freely; the data lives in each browser. Update
+with `docker compose up -d --build` again.
 
 ### Home Assistant, without an add-on
 
