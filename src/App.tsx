@@ -177,6 +177,10 @@ export default function App() {
     return map
   }, [state.rooms, state.activeScaleId])
 
+  // A level is only inspectable while editing, so selecting one in normal mode
+  // must not reserve space for a panel that never opens.
+  const panelOpen = showTasks || (!!selection && (selection.kind !== 'floor' || editing))
+
   async function onImport(file: File | undefined) {
     if (!file) return
     try {
@@ -191,7 +195,7 @@ export default function App() {
 
   return (
     <div
-      className={`app${editing ? ' is-editing' : ''}${selection || showTasks ? ' has-panel' : ''}`}
+      className={`app${editing ? ' is-editing' : ''}${panelOpen ? ' has-panel' : ''}`}
       onPointerDown={() => setMenuOpen(false)}
     >
       <header className="topbar">
