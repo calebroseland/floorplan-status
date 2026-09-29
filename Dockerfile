@@ -1,7 +1,7 @@
 # Build the static PWA, then serve it from nginx. The result is a single
 # self-contained image with no runtime dependencies and no server-side state —
 # every house's data lives in its own browser.
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci || npm install
