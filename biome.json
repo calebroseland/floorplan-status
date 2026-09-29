@@ -46,6 +46,12 @@
       }
     }
   },
+  "overrides": [
+    {
+      "includes": ["src/components/FloorPanel.tsx"],
+      "linter": { "rules": { "suspicious": { "noArrayIndexKey": "off" } } }
+    }
+  ],
   "assist": {
     "actions": { "source": { "organizeImports": "on" } }
   }
