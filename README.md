@@ -10,14 +10,23 @@ IndexedDB on the device; there is no account, no server, and no network call.
 
 ## Running it
 
+The toolchain is pinned with [mise](https://mise.jdx.dev), which installs the
+right Node and defines every command:
+
 ```bash
-npm install && npm run dev
+mise run setup && mise run dev
 ```
 
-Build a static bundle with `npm run build` — the `dist/` folder is plain files
-and can be served from anywhere. Asset paths are relative, so serving it from a
-subpath (`/house/`) works without a rebuild. `npm run preview` serves that build
-on your LAN if you just want to try it on a phone.
+Without mise, install Node 24 yourself and use the npm scripts, which the mise
+tasks delegate to: `npm install && npm run dev`.
+
+Build a static bundle with `mise run build` (or `npm run build`) — the `dist/`
+folder is plain files and can be served from anywhere. Asset paths are relative,
+so serving it from a subpath (`/house/`) works without a rebuild. `mise run
+preview` serves that build on your LAN if you just want to try it on a phone.
+
+`mise run check` is the gate: lint, typecheck, and tests. It runs on every
+commit through `.githooks/pre-commit` and in CI.
 
 ## Deploying
 
@@ -37,7 +46,7 @@ keep patched but nginx itself.
 On your workstation, build and ship the bundle to the Proxmox host:
 
 ```bash
-npm run build
+mise run build
 tar -czf house-status.tgz -C dist .
 scp house-status.tgz deploy/proxmox-lxc.sh deploy/nginx-site.conf root@pve:/tmp/
 ```
@@ -151,7 +160,7 @@ Then, from your workstation, build and push the files. `pct push` copies into
 the container from the host, so the container needs no SSH server of its own:
 
 ```bash
-npm run build
+mise run build
 tar -czf house-status.tgz -C dist .
 scp house-status.tgz deploy/nginx-site.conf deploy/Caddyfile root@pve:/tmp/
 ssh root@pve 'pct push 120 /tmp/house-status.tgz /tmp/house-status.tgz'
@@ -241,7 +250,7 @@ lxc.mount.entry: /dev/net dev/net none bind,create=dir
 #### 6. Later, to ship a new build
 
 ```bash
-npm run build
+mise run build
 tar -czf house-status.tgz -C dist .
 scp house-status.tgz root@pve:/tmp/
 ssh root@pve 'pct push 120 /tmp/house-status.tgz /tmp/house-status.tgz \
@@ -291,7 +300,7 @@ with `docker compose up -d --build` again.
 If you already run Home Assistant, its `www` folder is a static host:
 
 ```bash
-npm run build
+mise run build
 scp -r dist/* root@homeassistant:/config/www/house-status/
 ```
 
