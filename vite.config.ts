@@ -6,5 +6,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   base: "./",
   plugins: [react()],
-  server: { host: true },
+  // A fixed port, failing loudly when taken: with host: true, Vite's free-port probe misses a
+  // server bound only to ::1 and lands on a port where localhost reaches the other project.
+  server: { host: true, port: 5273, strictPort: true },
 });

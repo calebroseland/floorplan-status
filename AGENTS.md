@@ -11,7 +11,7 @@ then:
 
 | Purpose | Command |
 |---|---|
-| Dev server | `mise run dev` |
+| Dev server | `mise run dev` (always port 5273; fails if taken) |
 | Production build | `mise run build` |
 | Serve the build on the LAN | `mise run preview` |
 | Lint | `mise run lint` |
