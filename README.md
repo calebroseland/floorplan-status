@@ -8,6 +8,8 @@ chores and pets that need doing on a schedule.
 Everything runs in the browser. State and uploaded floorplan images live in
 IndexedDB on the device; there is no account, no server, and no network call.
 
+![Three floors coloured by cleanliness status, with markers and a legend of room counts per status](docs/screenshot.webp)
+
 ## Running it
 
 The toolchain is pinned with [mise](https://mise.jdx.dev), which installs the
